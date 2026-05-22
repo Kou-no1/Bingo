@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>ビンゴルーレット</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800;900&family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden;touch-action:manipulation}
+#root{height:100vh;width:100vw;overflow:hidden}
+body{font-family:'M PLUS Rounded 1c',system-ui,sans-serif;background:#0d0d1a}
+
+/* ── 紙吹雪 ── */
+@keyframes cfFall{0%{transform:translateY(-30px) rotate(0deg);opacity:1}100%{transform:translateY(110vh) rotate(900deg);opacity:0}}
+.cfp{position:fixed;top:-30px;pointer-events:none;z-index:9999;animation:cfFall linear forwards}
+
+/* ── オーバーレイ in/out ── */
+@keyframes ovIn{from{opacity:0;transform:scale(0.96)}to{opacity:1;transform:scale(1)}}
+@keyframes ovOut{from{opacity:1;transform:scale(1)}to{opacity:0;transform:scale(1.04)}}
+.ov-in{animation:ovIn 0.22s cubic-bezier(0.34,1.2,0.64,1) forwards}
+.ov-out{animation:ovOut 0.28s ease-in forwards}
+
+/* ── ドラムスクロール ── */
+@keyframes drumScroll{0%{transform:translateY(0)}100%{transform:translateY(-50%)}}
+.drum-fast{animation:drumScroll 0.055s linear infinite}
+.drum-mid {animation:drumScroll 0.16s  linear infinite}
+.drum-slow{animation:drumScroll 0.42s  linear infinite}
+
+/* ── 数字BIG爆発 ── */
+@keyframes numBlast{
+  0%  {transform:scale(0.05) rotate(-20deg);opacity:0}
+  50% {transform:scale(1.22) rotate(4deg);opacity:1}
+  72% {transform:scale(0.92) rotate(-2deg)}
+  88% {transform:scale(1.06) rotate(1deg)}
+  100%{transform:scale(1)    rotate(0deg);opacity:1}
+}
+@keyframes numGlow{
+  0%,100%{text-shadow:0 0 40px rgba(255,230,50,1),0 0 80px rgba(255,120,0,0.8),0 0 160px rgba(255,50,120,0.5)}
+  50%{text-shadow:0 0 60px rgba(255,245,80,1),0 0 120px rgba(255,150,0,1),0 0 220px rgba(255,80,160,0.8)}
+}
+.num-blast{animation:numBlast 0.65s cubic-bezier(0.34,1.56,0.64,1) forwards}
+.num-glow {animation:numGlow  1s ease-in-out infinite}
+
+/* ── 放射線 ── */
+@keyframes rayRot{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+.ray-rot{animation:rayRot 5s linear infinite;transform-origin:50% 50%}
+
+/* ── リング拍動 ── */
+@keyframes ringPulse{0%,100%{transform:translate(-50%,-50%) scale(1);opacity:0.3}50%{transform:translate(-50%,-50%) scale(1.06);opacity:0.5}}
+.ring-pulse{animation:ringPulse 1.6s ease-in-out infinite}
+
+/* ── ボール登場 ── */
+@keyframes ballPop{0%{transform:scale(0) rotate(-360deg);opacity:0}60%{transform:scale(1.3) rotate(15deg)}80%{transform:scale(0.9) rotate(-5deg)}100%{transform:scale(1) rotate(0deg);opacity:1}}
+.ball-pop{animation:ballPop 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards}
+
+/* ── 履歴スライドイン ── */
+@keyframes histSlide{from{transform:translateX(60px) scale(0.8);opacity:0}to{transform:translateX(0) scale(1);opacity:1}}
+.hist-new{animation:histSlide 0.35s cubic-bezier(0.34,1.3,0.64,1) forwards}
+
+/* ── タップ波紋 ── */
+@keyframes tapRipple{0%{transform:scale(0.8);opacity:0.7}100%{transform:scale(2.2);opacity:0}}
+.tap-ripple{animation:tapRipple 0.5s ease-out forwards}
+
+/* ── ボタン pulse ── */
+@keyframes btnGlow{0%,100%{box-shadow:0 0 20px rgba(255,100,100,0.5),0 6px 20px rgba(0,0,0,0.3)}50%{box-shadow:0 0 40px rgba(255,150,80,0.8),0 8px 28px rgba(0,0,0,0.4)}}
+.btn-glow{animation:btnGlow 1.4s ease-in-out infinite}
+
+/* ── スクロールバー ── */
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:rgba(255,255,255,0.05)}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.2);border-radius:2px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useRef,useEffect,useCallback,useMemo}=React;
+
+/* ══ 定数 ══ */
+const TOTAL=75;
+const ALL_NUMS=Array.from({length:TOTAL},(_,i)=>i+1);
+
+// ビンゴ列の色 (B/I/N/G/O)
+const COL_COLORS=['#FF6B6B','#FFB347','#51CF66','#339AF0','#CC5DE8'];
+const COL_LABELS=['B','I','N','G','O'];
+// 各列の範囲: B=1-15, I=16-30, N=31-45, G=46-60, O=61-75
+const numToCol=n=>Math.floor((n-1)/15); // 0-4
+const colOf=n=>COL_LABELS[numToCol(n)];
+const colorOf=n=>COL_COLORS[numToCol(n)];
+
+// グラデ候補
+const GRADS=[
+  ['#FF6B6B','#FF8E53'],['#51CF66','#20C997'],['#339AF0','#228BE6'],
+  ['#CC5DE8','#E599F7'],['#FFB347','#FF6B6B'],['#20C997','#339AF0'],
+  ['#E599F7','#CC5DE8'],['#FF8E53','#FFB347'],
+];
+
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const shuffle=a=>{const b=[...a];for(let i=b.length-1;i>0;i--){const j=0|Math.random()*(i+1);[b[i],b[j]]=[b[j],b[i]]}return b};
+
+/* ══ Audio ══ */
+function useAudio(){
+  const ctx=useRef(null);
+  const get=()=>{
+    if(!ctx.current){
+      const C=window.AudioContext||window.webkitAudioContext;
+      if(C)ctx.current=new C();
+    }
+    return ctx.current;
+  };
+  const tick=useCallback((spd=1)=>{
+    const c=get();if(!c)return;
+    const o=c.createOscillator(),g=c.createGain();
+    o.type='square';
+    o.frequency.value=200+Math.random()*500;
+    g.gain.setValueAtTime(0.06,c.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001,c.currentTime+0.07/spd);
+    o.connect(g).connect(c.destination);o.start();o.stop(c.currentTime+0.08/spd);
+  },[]);
+  const decide=useCallback(()=>{
+    const c=get();if(!c)return;
+    // ジャジャーン風
+    [[261,0],[329,0.06],[392,0.12],[523,0.2],[659,0.28],[784,0.36]].forEach(([f,dt])=>{
+      const o=c.createOscillator(),g=c.createGain();
+      o.type='triangle';o.frequency.value=f;
+      const t=c.currentTime+dt;
+      g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.22,t+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+0.3);
+      o.connect(g).connect(c.destination);o.start(t);o.stop(t+0.35);
+    });
+  },[]);
+  const drumHit=useCallback(()=>{
+    const c=get();if(!c)return;
+    // バスドラム風
+    const o=c.createOscillator(),g=c.createGain();
+    o.type='sine';
+    o.frequency.setValueAtTime(150,c.currentTime);
+    o.frequency.exponentialRampToValueAtTime(50,c.currentTime+0.12);
+    g.gain.setValueAtTime(0.5,c.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001,c.currentTime+0.18);
+    o.connect(g).connect(c.destination);o.start();o.stop(c.currentTime+0.2);
+  },[]);
+  const fanfare=useCallback(()=>{
+    const c=get();if(!c)return;
+    [[523,0],[659,.1],[784,.2],[1047,.32],[1319,.44],[784,.58],[1047,.7],[1319,.82],[1568,.96]].forEach(([f,dt])=>{
+      const o=c.createOscillator(),g=c.createGain();
+      o.type='triangle';o.frequency.value=f;
+      const t=c.currentTime+dt;
+      g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.18,t+0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+0.2);
+      o.connect(g).connect(c.destination);o.start(t);o.stop(t+0.25);
+    });
+  },[]);
+  return{tick,decide,drumHit,fanfare};
+}
+
+/* ══ 紙吹雪 ══ */
+function Confetti({show}){
+  const[ps,setPs]=useState([]);
+  useEffect(()=>{
+    if(!show){setPs([]);return}
+    setPs(Array.from({length:100}).map((_,i)=>({
+      id:i,left:Math.random()*100,delay:Math.random()*1.2,
+      dur:2.5+Math.random()*2.5,
+      color:COL_COLORS[i%5],size:7+Math.random()*12,circle:Math.random()>.4
+    })));
+    const t=setTimeout(()=>setPs([]),7000);return()=>clearTimeout(t);
+  },[show]);
+  return(<>{ps.map(p=><div key={p.id} className="cfp" style={{left:`${p.left}%`,width:p.size,height:p.size,backgroundColor:p.color,borderRadius:p.circle?'50%':'3px',animationDuration:`${p.dur}s`,animationDelay:`${p.delay}s`}}/>)}</>);
+}
+
+/* ══ ビンゴボール（ドラムスクロール内の数字） ══ */
+function DrumBall({num,size=60}){
+  const col=colorOf(num);
+  const label=colOf(num);
+  return(
+    <div style={{width:size,height:size,borderRadius:'50%',background:`radial-gradient(circle at 35% 32%,white,${col})`,boxShadow:`0 4px 16px rgba(0,0,0,0.35),inset 0 -3px 8px rgba(0,0,0,0.2)`,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',flexShrink:0,position:'relative'}}>
+      <span style={{fontSize:size*0.32,fontWeight:'900',color:'#1a1a2e',lineHeight:1,fontFamily:"'Bebas Neue',system-ui"}}>{num}</span>
+    </div>
+  );
+}
+
+/* ══ 全画面ルーレットオーバーレイ ══ */
+function RouletteOverlay({remaining,target,onDone,onSkip}){
+  const[drumCls,setDrumCls]=useState('drum-fast');
+  const[showBig,setShowBig]=useState(false);
+  const[gradIdx,setGradIdx]=useState(0);
+  const[closing,setClosing]=useState(false);
+  const[ripple,setRipple]=useState(false);
+  const{tick,decide,drumHit}=useAudio();
+  const tickRef=useRef(null);const gradRef=useRef(null);
+  const aliveRef=useRef(true);
+
+  // ドラムで流れる数字プール（残り番号からランダム）
+  const drumNums=useMemo(()=>{
+    const pool=shuffle([...remaining.filter(n=>n!==target)]);
+    const arr=pool.slice(0,Math.min(pool.length,20));
+    arr.push(target);
+    return [...arr,...arr]; // 2周
+  },[]);
+
+  useEffect(()=>{
+    aliveRef.current=true;
+    gradRef.current=setInterval(()=>setGradIdx(i=>(i+1)%GRADS.length),90);
+    const run=async()=>{
+      // 高速
+      let spd=1;
+      tickRef.current=setInterval(()=>{if(aliveRef.current)tick(spd)},55);
+      setDrumCls('drum-fast');await sleep(1100);if(!aliveRef.current)return;
+      // 中速
+      spd=0.55;clearInterval(tickRef.current);
+      tickRef.current=setInterval(()=>{if(aliveRef.current)tick(spd)},140);
+      setDrumCls('drum-mid');await sleep(750);if(!aliveRef.current)return;
+      // 低速
+      spd=0.28;clearInterval(tickRef.current);
+      tickRef.current=setInterval(()=>{if(aliveRef.current)tick(spd)},310);
+      setDrumCls('drum-slow');await sleep(650);if(!aliveRef.current)return;
+      // 停止
+      clearInterval(tickRef.current);clearInterval(gradRef.current);
+      drumHit();setDrumCls('');await sleep(180);if(!aliveRef.current)return;
+      decide();
+      await sleep(120);if(!aliveRef.current)return;
+      setShowBig(true);
+    };
+    run();
+    return()=>{
+      aliveRef.current=false;
+      clearInterval(tickRef.current);clearInterval(gradRef.current);
+    };
+  },[]);
+
+  const handleTap=()=>{
+    if(!showBig)return;
+    setRipple(true);
+    setTimeout(()=>setRipple(false),500);
+    setClosing(true);
+    setTimeout(()=>onDone(),280);
+  };
+
+  const[c1,c2]=GRADS[gradIdx];
+  const col=colorOf(target);
+  const label=colOf(target);
+
+  return(
+    <div className={closing?'ov-out':'ov-in'}
+      onClick={handleTap}
+      style={{position:'fixed',inset:0,zIndex:500,
+        background:showBig?`radial-gradient(ellipse at center,${c1}cc 0%,#0a0a14 70%)`:`linear-gradient(135deg,${c1} 0%,${c2} 100%)`,
+        display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+        overflow:'hidden',cursor:showBig?'pointer':'default',userSelect:'none'
+      }}>
+
+      {/* 放射線 */}
+      <svg className="ray-rot" style={{position:'absolute',width:'160vmax',height:'160vmax',opacity:0.09,pointerEvents:'none',top:'50%',left:'50%',marginTop:'-80vmax',marginLeft:'-80vmax'}} viewBox="0 0 200 200">
+        {Array.from({length:30}).map((_,i)=>{const a=i*(360/30)*Math.PI/180;return<line key={i} x1="100" y1="100" x2={100+110*Math.cos(a)} y2={100+110*Math.sin(a)} stroke="white" strokeWidth="3.5"/>})}
+      </svg>
+
+      {/* 残り枚数バッジ */}
+      <div style={{position:'absolute',top:16,right:20,background:'rgba(0,0,0,0.35)',borderRadius:20,padding:'4px 14px',color:'rgba(255,255,255,0.8)',fontSize:13,fontWeight:'800',backdropFilter:'blur(4px)'}}>
+        残り {remaining.length} 個
+      </div>
+
+      {/* スキップボタン */}
+      <button onClick={e=>{e.stopPropagation();onSkip();}}
+        style={{position:'absolute',top:16,left:20,background:'rgba(0,0,0,0.3)',border:'1px solid rgba(255,255,255,0.2)',borderRadius:20,padding:'4px 14px',color:'rgba(255,255,255,0.7)',fontSize:12,fontWeight:'bold',cursor:'pointer',backdropFilter:'blur(4px)'}}>
+        スキップ
+      </button>
+
+      {/* リング: ドラム中のみ表示 */}
+      {!showBig&&[52,66,80].map((sz,i)=>(
+        <div key={i} className={i===0?'ring-pulse':''} style={{position:'absolute',width:`${sz}vmin`,height:`${sz}vmin`,borderRadius:'50%',border:`${[5,2.5,1.5][i]}px solid rgba(255,255,255,${[0.28,0.14,0.07][i]})`,top:'50%',left:'50%',transform:'translate(-50%,-50%)',pointerEvents:'none'}}/>
+      ))}
+
+      {!showBig?(
+        /* ── ドラムスクロール ── */
+        <div style={{height:'36vmin',overflow:'hidden',width:'88vw',maxWidth:560,
+          display:'flex',alignItems:'center',justifyContent:'center',
+          maskImage:'linear-gradient(to bottom,transparent,black 18%,black 82%,transparent)',
+          WebkitMaskImage:'linear-gradient(to bottom,transparent,black 18%,black 82%,transparent)',
+          visibility:showBig?'hidden':'visible',
+        }}>
+          <div className={drumCls} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:'2vmin'}}>
+            {drumNums.map((n,i)=>(
+              <DrumBall key={i} num={n} size={Math.min(window.innerWidth*0.14,88)}/>
+            ))}
+          </div>
+        </div>
+      ):(
+        /* ── 数字BIG確定: 画面全体に直接ドーン ── */
+        <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',zIndex:10,gap:0}}>
+          {/* 列ラベル: 非表示 */}
+          {/* 数字 本体 */}
+          <div className="num-blast num-glow" style={{
+            fontSize:'clamp(120px,38vw,520px)',
+            fontWeight:'900',
+            color:'white',
+            lineHeight:0.82,
+            fontFamily:"'Bebas Neue','M PLUS Rounded 1c',system-ui",
+            letterSpacing:'-0.03em',
+            userSelect:'none',
+            marginTop:'-0.04em',
+          }}>
+            {target}
+          </div>
+          {/* タップ誘導 */}
+          <div style={{
+            marginTop:'clamp(12px,3vh,32px)',
+            fontSize:'clamp(14px,2.8vw,22px)',
+            color:'rgba(255,255,255,0.65)',
+            fontWeight:'700',
+            letterSpacing:'0.06em',
+          }}>
+            タップして次へ →
+          </div>
+        </div>
+      )}
+
+      {/* タップ波紋 */}
+      {ripple&&<div className="tap-ripple" style={{position:'absolute',width:200,height:200,borderRadius:'50%',border:'4px solid rgba(255,255,255,0.6)',top:'50%',left:'50%',marginTop:-100,marginLeft:-100,pointerEvents:'none'}}/>}
+
+      {/* 角デコ */}
+      {[[true,true],[true,false],[false,true],[false,false]].map(([top,left],i)=>(
+        <div key={i} style={{position:'absolute',top:top?12:'auto',bottom:top?'auto':12,left:left?12:'auto',right:left?'auto':12,width:32,height:32,
+          borderTop:top?'3px solid rgba(255,255,255,0.4)':'none',
+          borderBottom:top?'none':'3px solid rgba(255,255,255,0.4)',
+          borderLeft:left?'3px solid rgba(255,255,255,0.4)':'none',
+          borderRight:left?'none':'3px solid rgba(255,255,255,0.4)',
+        }}/>
+      ))}
+    </div>
+  );
+}
+
+/* ══ 履歴ボール（小） ══ */
+function HistBall({num,isNew,rank}){
+  const col=colorOf(num);
+  const label=colOf(num);
+  const sz=rank===0?64:rank===1?52:rank===2?44:36;
+  return(
+    <div className={isNew?'hist-new':''} style={{
+      width:sz,height:sz,borderRadius:'50%',flexShrink:0,
+      background:`radial-gradient(circle at 35% 30%,rgba(255,255,255,0.85),${col})`,
+      boxShadow:`0 3px 12px rgba(0,0,0,0.35),inset 0 -2px 6px rgba(0,0,0,0.15)`,
+      display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+      border:rank===0?`3px solid rgba(255,255,255,0.8)`:`2px solid rgba(255,255,255,0.3)`,
+      opacity:rank>6?0.55:1,
+      transition:'opacity 0.3s',
+    }}>
+      <span style={{fontSize:sz*0.2,fontWeight:'900',color:col,lineHeight:1}}>{label}</span>
+      <span style={{fontSize:sz*0.32,fontWeight:'900',color:'#1a1a2e',lineHeight:1,fontFamily:"'Bebas Neue',system-ui"}}>{num}</span>
+    </div>
+  );
+}
+
+/* ══ 75マスのビンゴボード ══ */
+function BingoBoard({called}){
+  const calledSet=new Set(called);
+  return(
+    <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:2,width:'100%'}}>
+      {/* ヘッダー */}
+      {COL_LABELS.map((l,i)=>(
+        <div key={l} style={{background:COL_COLORS[i],borderRadius:'6px 6px 2px 2px',textAlign:'center',padding:'4px 0',fontSize:'clamp(11px,1.8vw,16px)',fontWeight:'900',color:'white',textShadow:'0 1px 4px rgba(0,0,0,0.3)',letterSpacing:'0.05em'}}>
+          {l}
+        </div>
+      ))}
+      {/* 数字マス: 列優先で並べる (B列1-15 → I列16-30 ...) */}
+      {Array.from({length:15}).flatMap((_,row)=>
+        Array.from({length:5}).map((_,col)=>{
+          const n=col*15+row+1;
+          const hit=calledSet.has(n);
+          return(
+            <div key={n} style={{
+              background:hit?COL_COLORS[col]:'rgba(255,255,255,0.06)',
+              borderRadius:4,
+              display:'flex',alignItems:'center',justifyContent:'center',
+              aspectRatio:'1',
+              fontSize:'clamp(8px,1.4vw,13px)',fontWeight:hit?'900':'500',
+              color:hit?'white':'rgba(255,255,255,0.35)',
+              border:hit?`1.5px solid rgba(255,255,255,0.4)`:'1px solid rgba(255,255,255,0.08)',
+              transition:'all 0.3s cubic-bezier(0.34,1.4,0.64,1)',
+              transform:hit?'scale(1.06)':'scale(1)',
+              boxShadow:hit?`0 2px 8px ${COL_COLORS[col]}66`:'none',
+              fontFamily:hit?"'Bebas Neue',system-ui":"inherit",
+              letterSpacing:hit?'0.02em':'0',
+            }}>
+              {n}
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+/* ══ メインアプリ ══ */
+function App(){
+  const[called,setCalled]=useState([]);       // 呼ばれた順の配列（最新が先頭）
+  const[roulette,setRoulette]=useState(false); // オーバーレイ表示中か
+  const[currentNum,setCurrentNum]=useState(null);
+  const[confetti,setConfetti]=useState(false);
+  const[view,setView]=useState('main');        // main | board
+  const{fanfare}=useAudio();
+
+  const remaining=useMemo(()=>ALL_NUMS.filter(n=>!called.includes(n)),[called]);
+  const isDone=remaining.length===0;
+
+  const drawNext=useCallback(()=>{
+    if(roulette||isDone)return;
+    const pool=shuffle([...remaining]);
+    const num=pool[0];
+    setCurrentNum(num);
+    setRoulette(true);
+  },[roulette,isDone,remaining]);
+
+  const handleDone=useCallback(()=>{
+    setRoulette(false);
+    setCalled(prev=>[currentNum,...prev]);
+    if(remaining.length===1){
+      // 最後の1個
+      setConfetti(true);
+      fanfare();
+      setTimeout(()=>setConfetti(false),7000);
+    }
+  },[currentNum,remaining,fanfare]);
+
+  const handleSkip=useCallback(()=>{
+    setRoulette(false);
+  },[]);
+
+  const handleReset=()=>{
+    if(!window.confirm('リセットしますか？すべての履歴が消えます。'))return;
+    setCalled([]);setRoulette(false);setCurrentNum(null);setConfetti(false);
+  };
+
+  const progress=called.length/TOTAL;
+
+  return(
+    <div style={{height:'100vh',width:'100vw',overflow:'hidden',background:'linear-gradient(160deg,#0d0d1a 0%,#1a0d2e 50%,#0d1a1a 100%)',display:'flex',flexDirection:'column',color:'white',fontFamily:"'M PLUS Rounded 1c',system-ui"}}>
+      <Confetti show={confetti}/>
+      {roulette&&currentNum&&(
+        <RouletteOverlay remaining={remaining} target={currentNum} onDone={handleDone} onSkip={handleSkip}/>
+      )}
+
+      {/* ── ヘッダー ── */}
+      <div style={{flexShrink:0,padding:'10px 16px 8px',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:'1px solid rgba(255,255,255,0.08)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{width:36,height:36,borderRadius:'50%',background:'linear-gradient(135deg,#FF6B6B,#CC5DE8)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,boxShadow:'0 4px 12px rgba(255,107,107,0.4)'}}>🎱</div>
+          <div>
+            <div style={{fontSize:16,fontWeight:'900',background:'linear-gradient(90deg,#FF6B6B,#FFB347,#51CF66,#339AF0,#CC5DE8)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',letterSpacing:'0.05em'}}>
+              BINGO ROULETTE
+            </div>
+            <div style={{fontSize:9,color:'rgba(255,255,255,0.35)'}}>1〜75 ランダム抽選</div>
+          </div>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          {/* ボード切替 */}
+          <button onClick={()=>setView(v=>v==='main'?'board':'main')}
+            style={{padding:'5px 12px',borderRadius:20,background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.75)',fontSize:11,fontWeight:'bold',cursor:'pointer'}}>
+            {view==='main'?'📋 ボード':'← 戻る'}
+          </button>
+          <button onClick={handleReset}
+            style={{padding:'5px 12px',borderRadius:20,background:'rgba(255,100,100,0.12)',border:'1px solid rgba(255,100,100,0.2)',color:'#FF8A8A',fontSize:11,fontWeight:'bold',cursor:'pointer'}}>
+            ↺ リセット
+          </button>
+        </div>
+      </div>
+
+      {/* ── メインビュー ── */}
+      {view==='main'&&(
+        <div style={{flex:1,display:'flex',overflow:'hidden',minHeight:0}}>
+
+          {/* 左: 抽選エリア */}
+          <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'12px 16px',gap:16,minWidth:0}}>
+
+            {/* 進捗 */}
+            <div style={{width:'100%',maxWidth:380,display:'flex',flexDirection:'column',gap:6}}>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'rgba(255,255,255,0.45)'}}>
+                <span>出た番号</span>
+                <span style={{fontWeight:'bold',color:called.length===TOTAL?'#51CF66':'rgba(255,255,255,0.7)'}}>{called.length} / {TOTAL}</span>
+              </div>
+              <div style={{height:6,borderRadius:3,background:'rgba(255,255,255,0.1)',overflow:'hidden'}}>
+                <div style={{height:'100%',borderRadius:3,background:'linear-gradient(90deg,#FF6B6B,#FFB347,#51CF66,#339AF0,#CC5DE8)',width:`${progress*100}%`,transition:'width 0.5s ease'}}/>
+              </div>
+            </div>
+
+            {/* 直前の数字表示エリア */}
+            {called.length>0&&!roulette&&(
+              <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:8}}>
+                <div style={{fontSize:11,color:'rgba(255,255,255,0.4)',fontWeight:'bold',letterSpacing:'0.1em'}}>前回の番号</div>
+                <div style={{
+                  width:'clamp(100px,22vmin,160px)',height:'clamp(100px,22vmin,160px)',
+                  borderRadius:'50%',
+                  background:`radial-gradient(circle at 32% 30%,rgba(255,255,255,0.8),${colorOf(called[0])})`,
+                  boxShadow:`0 0 40px ${colorOf(called[0])}66,0 12px 40px rgba(0,0,0,0.4)`,
+                  display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+                  position:'relative',
+                }}>
+                  <span style={{fontSize:'clamp(12px,3vmin,20px)',fontWeight:'900',color:colorOf(called[0]),opacity:0.85,lineHeight:1}}>{colOf(called[0])}</span>
+                  <span style={{fontSize:'clamp(36px,9vmin,72px)',fontWeight:'900',color:'#1a1a2e',lineHeight:0.95,fontFamily:"'Bebas Neue',system-ui"}}>{called[0]}</span>
+                  <div style={{position:'absolute',top:'14%',left:'22%',width:'35%',height:'18%',borderRadius:'50%',background:'rgba(255,255,255,0.4)',transform:'rotate(-30deg)',filter:'blur(3px)'}}/>
+                </div>
+              </div>
+            )}
+
+            {/* 抽選ボタン */}
+            {!isDone?(
+              <button onClick={drawNext} disabled={roulette}
+                className={!roulette?'btn-glow':''}
+                style={{
+                  padding:'0',width:'clamp(180px,42vw,280px)',height:'clamp(56px,10vh,76px)',
+                  borderRadius:'clamp(28px,5vh,38px)',
+                  background:roulette?'rgba(255,255,255,0.08)':'linear-gradient(135deg,#FF6B6B,#FF8E53,#FFB347)',
+                  color:roulette?'rgba(255,255,255,0.3)':'white',
+                  fontWeight:'900',fontSize:'clamp(16px,3.5vw,24px)',
+                  border:'none',cursor:roulette?'not-allowed':'pointer',
+                  letterSpacing:'0.05em',fontFamily:"'M PLUS Rounded 1c',system-ui",
+                  transition:'all 0.2s',
+                }}>
+                {called.length===0?'🎱 スタート！':'🎲 次の番号！'}
+              </button>
+            ):(
+              <div style={{textAlign:'center'}}>
+                <div style={{fontSize:'clamp(20px,4vw,32px)',fontWeight:'900',background:'linear-gradient(90deg,#FF6B6B,#FFB347,#51CF66)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>
+                  🎉 全75番号 終了！
+                </div>
+                <button onClick={handleReset} style={{marginTop:12,padding:'8px 24px',borderRadius:20,background:'rgba(255,255,255,0.1)',border:'1px solid rgba(255,255,255,0.2)',color:'white',fontWeight:'bold',fontSize:13,cursor:'pointer'}}>
+                  ↺ もう一度
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 右: 履歴 */}
+          <div style={{width:'clamp(160px,28vw,260px)',flexShrink:0,borderLeft:'1px solid rgba(255,255,255,0.07)',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            <div style={{padding:'10px 12px 6px',fontSize:11,fontWeight:'bold',color:'rgba(255,255,255,0.4)',letterSpacing:'0.1em',flexShrink:0}}>
+              履歴 ({called.length}件)
+            </div>
+            <div style={{flex:1,overflowY:'auto',padding:'4px 10px 10px',display:'flex',flexDirection:'column',gap:6}}>
+              {called.map((n,i)=>(
+                <div key={n} className={i===0?'hist-new':''} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 8px',borderRadius:10,background:i===0?'rgba(255,255,255,0.1)':'rgba(255,255,255,0.04)',border:i===0?'1px solid rgba(255,255,255,0.15)':'1px solid transparent',transition:'all 0.3s'}}>
+                  <HistBall num={n} isNew={false} rank={i}/>
+                  <div>
+                    <div style={{fontSize:'clamp(8px,1.3vw,11px)',color:'rgba(255,255,255,0.35)',lineHeight:1}}>{i===0?'最新':'第'+(i+1)+'番目'}</div>
+                    <div style={{fontSize:'clamp(13px,2vw,18px)',fontWeight:'900',color:'white',fontFamily:"'Bebas Neue',system-ui",lineHeight:1.1}}>
+                      <span style={{color:colorOf(n)}}>{colOf(n)}</span>—{n}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {called.length===0&&(
+                <div style={{color:'rgba(255,255,255,0.18)',fontSize:11,textAlign:'center',marginTop:20,fontStyle:'italic'}}>まだ抽選されていません</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── ボードビュー ── */}
+      {view==='board'&&(
+        <div style={{flex:1,overflow:'auto',padding:'12px 16px'}}>
+          <div style={{maxWidth:460,margin:'0 auto'}}>
+            <div style={{textAlign:'center',fontSize:12,color:'rgba(255,255,255,0.4)',marginBottom:8}}>
+              出た番号: <b style={{color:'white'}}>{called.length}</b> / {TOTAL}
+            </div>
+            <BingoBoard called={called}/>
+            <div style={{display:'flex',justifyContent:'center',gap:8,marginTop:12,flexWrap:'wrap'}}>
+              {COL_LABELS.map((l,i)=>{
+                const cnt=called.filter(n=>numToCol(n)===i).length;
+                return(
+                  <div key={l} style={{display:'flex',alignItems:'center',gap:4,padding:'3px 10px',borderRadius:12,background:`${COL_COLORS[i]}22`,border:`1px solid ${COL_COLORS[i]}55`}}>
+                    <span style={{color:COL_COLORS[i],fontWeight:'900',fontSize:12}}>{l}</span>
+                    <span style={{color:'rgba(255,255,255,0.6)',fontSize:11}}>{cnt}/15</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── フッター: B/I/N/G/O カラーバー ── */}
+      <div style={{flexShrink:0,height:4,display:'flex'}}>
+        {COL_COLORS.map((c,i)=><div key={i} style={{flex:1,background:c}}/>)}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
